@@ -55,18 +55,33 @@ interface BuildSpec {
  *
  * The builder is told exactly how the project will be tested, so a passing
  * build is a real signal rather than luck. ESM `.mjs` with `node:test` needs no
- * installation step, which keeps the sandbox offline during QA.
+ * installation step, which keeps QA offline.
+ *
+ * The scope limit is the important part. An open-ended "build an MVP" reliably
+ * produces ten files and no passing tests inside any sane timeout; a fixed,
+ * small surface produces something that genuinely runs.
  */
 const BUILD_CONTRACT = `
 Build requirements, which are not negotiable:
-- Create a working Node.js application using ES modules and .mjs file extensions.
+
+Work only from this message. Do not explore the filesystem, do not read or list
+directories, do not search the web, and do not fetch any URL. There is nothing
+to investigate: the specification is complete below. Start writing files
+immediately and stop when the five files exist.
+
+- Create a small, working Node.js application using ES modules and .mjs files.
 - Do NOT use TypeScript, React, bundlers, or any framework that needs compilation.
 - Do NOT run npm install. The QA sandbox has no network, so dependencies cannot be fetched.
-- You may only use Node.js built-in modules (node:fs, node:http, node:test, etc).
-- Include a package.json with {"type":"module"} and a "test" script.
-- Include at least one test file named *.test.mjs using node:test and node:assert.
-- The tests must pass with a plain "node --test" invocation.
-- Provide a README.md explaining how to run the app.
+- Use ONLY Node.js built-in modules.
+- Write at most 4 source files, plus a test file and a README.
+- Write a package.json with {"type":"module"} and a "test" script of "node --test".
+- Write exactly one test file named core.test.mjs using node:test and node:assert.
+  It must contain at least 3 assertions and pass with "node --test".
+- Write a README.md with one short section on how to run the tests.
+- The app must run with "node src/index.mjs" and print useful output.
+- Export the core functions from a module so the test can import them.
+- Do not create a web server, a UI, a build step, or a database.
+- Do not run the test suite yourself; QA will do that.
 - Every file must be created inside the current working directory.
 `.trim();
 
@@ -113,6 +128,11 @@ function builderPrompt(spec: BuildSpec, attempt: number, failures: string[]): st
 
 function workspacePath(opportunityId: string): string {
   return join(config.workspaceDir, opportunityId);
+}
+
+/** A short stable identifier for a workspace path, used for runtime state. */
+function opportunitySlug(workDir: string): string {
+  return workDir.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
 function prepareWorkspace(opportunityId: string): string {
@@ -166,7 +186,10 @@ async function runBuilder(
   const ocBin = resolveOpencodeBinary(config.OPENCODE_BIN);
   const ocBinDir: string = ocBin.replace(/\/[^/]+$/, "");
 
-  const sandboxRoot = join(workDir, ".origin");
+  // OpenCode's own home lives beside the project, never inside it. Keeping it
+  // inside the workspace makes OpenCode explore its own config and session
+  // database as if they were project files, which derails the build.
+  const sandboxRoot = join(config.workspaceDir, ".origin-runtime", opportunitySlug(workDir));
   const ocConfigDir = join(sandboxRoot, "config");
   const ocDataDir = join(sandboxRoot, "data");
   const ocCacheDir = join(sandboxRoot, "cache");
@@ -174,16 +197,19 @@ async function runBuilder(
   mkdirSync(ocDataDir, { recursive: true });
   mkdirSync(ocCacheDir, { recursive: true });
 
-  // The config must declare the model key exactly as OpenCode addresses it:
-  // "<provider>/<model>". Declaring a bare model id leaves it unresolved and
-  // OpenCode reports "Model unavailable".
-  const modelKey = config.OPENCODE_MODEL.replace(/^deeprelay\//, "");
+  // OpenCode addresses models in two different forms and both must be right:
+  //   - the config's `model` and its `models` key use "<provider>/<model>"
+  //   - the --model CLI flag prefixes the provider again, so it reads
+  //     "deeprelay/deeprelay/<model>"
+  // A mismatch in either place produces only "Model unavailable".
+  const cfgModel = `deeprelay/${config.DEEPRELAY_MODEL}`;
+  const cliModel = config.OPENCODE_MODEL;
   writeFileSync(
     join(ocConfigDir, "opencode", "opencode.json"),
     JSON.stringify(
       {
         $schema: "https://opencode.ai/config.json",
-        model: config.OPENCODE_MODEL,
+        model: cfgModel,
         provider: {
           deeprelay: {
             name: "deeprelay",
@@ -193,7 +219,10 @@ async function runBuilder(
               apiKey: "{env:DEEPRELAY_API_KEY}",
             },
             models: {
-              [modelKey]: { name: modelKey },
+              [cfgModel]: {
+                name: cfgModel,
+                limit: { context: 1_048_576, output: 393_216 },
+              },
             },
           },
         },
@@ -240,15 +269,16 @@ async function runBuilder(
     "--setenv", "XDG_DATA_HOME", ocDataDir,
     "--setenv", "XDG_CACHE_HOME", ocCacheDir,
     "--setenv", "DEEPRELAY_API_KEY", config.DEEPRELAY_API_KEY ?? "",
-    // The builder needs the model API; it does not get network access to
-    // anything else because it has no credential and no host filesystem.
+    // The builder needs the model API and nothing else. It is given network
+    // access only for that; it has no credential for any other service and no
+    // access to the host filesystem.
     "--share-net",
     ocBin,
     "run",
     "--standalone",
     "--auto",
     "--model",
-    config.OPENCODE_MODEL,
+    cliModel,
     prompt,
   ];
 
