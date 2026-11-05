@@ -133,8 +133,10 @@ export function CouncilPage() {
             />
           ) : (
             <div className="max-h-[38rem] overflow-y-auto rounded border border-border">
+              {/* Newest first: a demo should open on the latest activity, not on
+                  the joining notices from when the room was created. */}
               <ul className="divide-y divide-border">
-                {transcript.map((entry) => (
+                {[...transcript].reverse().map((entry) => (
                   <TranscriptRow key={entry.id} entry={entry} />
                 ))}
               </ul>
