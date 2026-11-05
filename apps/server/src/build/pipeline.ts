@@ -24,7 +24,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BuildStatus, Opportunity, QaCheck, QaReport } from "@origin/contracts";
 import { config } from "../config.js";
@@ -32,6 +32,13 @@ import { logger } from "../lib/logger.js";
 import { recordActivity } from "../lib/activity.js";
 import type { SwitchHub } from "../switch/hub.js";
 import { listWorkspaceFiles, runInSandbox } from "./sandbox.js";
+import {
+  builderPrompt,
+  entryPoint,
+  packageJson,
+  readme,
+  templateVars,
+} from "./template.js";
 
 export interface BuildPipelineInput {
   opportunity: Opportunity;
@@ -40,86 +47,6 @@ export interface BuildPipelineInput {
   onTesting: () => Promise<void>;
   /** Called before each fix attempt, with the failures QA found. */
   onRetry: (attempt: number, failures: string[]) => Promise<void>;
-}
-
-interface BuildSpec {
-  title: string;
-  problem: string;
-  solution: string;
-  users: string[];
-  mustFeatures: string[];
-}
-
-/**
- * A deliberately narrow, boring contract for generated projects.
- *
- * The builder is told exactly how the project will be tested, so a passing
- * build is a real signal rather than luck. ESM `.mjs` with `node:test` needs no
- * installation step, which keeps QA offline.
- *
- * The scope limit is the important part. An open-ended "build an MVP" reliably
- * produces ten files and no passing tests inside any sane timeout; a fixed,
- * small surface produces something that genuinely runs.
- */
-const BUILD_CONTRACT = `
-Build requirements, which are not negotiable:
-
-Work only from this message. Do not explore the filesystem, do not read or list
-directories, do not search the web, and do not fetch any URL. There is nothing
-to investigate: the specification is complete below. Start writing files
-immediately and stop when the five files exist.
-
-- Create a small, working Node.js application using ES modules and .mjs files.
-- Do NOT use TypeScript, React, bundlers, or any framework that needs compilation.
-- Do NOT run npm install. The QA sandbox has no network, so dependencies cannot be fetched.
-- Use ONLY Node.js built-in modules.
-- Write at most 4 source files, plus a test file and a README.
-- Write a package.json with {"type":"module"} and a "test" script of "node --test".
-- Write exactly one test file named core.test.mjs using node:test and node:assert.
-  It must contain at least 3 assertions and pass with "node --test".
-- Write a README.md with one short section on how to run the tests.
-- The app must run with "node src/index.mjs" and print useful output.
-- Export the core functions from a module so the test can import them.
-- Do not create a web server, a UI, a build step, or a database.
-- Do not run the test suite yourself; QA will do that.
-- Every file must be created inside the current working directory.
-`.trim();
-
-function buildSpec(brief: NonNullable<Opportunity["brief"]>): BuildSpec {
-  return {
-    title: brief.title,
-    problem: brief.problemStatement,
-    solution: brief.proposedSolution,
-    users: brief.targetUsers,
-    mustFeatures: brief.mvpFeatures.filter((f) => f.priority === "must").map((f) => f.title),
-  };
-}
-
-function builderPrompt(spec: BuildSpec, attempt: number, failures: string[]): string {
-  const parts = [
-    `Build a minimal but genuinely working MVP for: ${spec.title}`,
-    "",
-    `Problem it solves: ${spec.problem}`,
-    `Proposed solution: ${spec.solution}`,
-    `Target users: ${spec.users.join(", ")}`,
-    "",
-    "Required features for this build:",
-    ...spec.mustFeatures.map((f) => `- ${f}`),
-    "",
-    BUILD_CONTRACT,
-  ];
-
-  if (attempt > 0 && failures.length > 0) {
-    parts.push(
-      "",
-      `This is fix attempt ${attempt}. The previous build failed QA with these failures:`,
-      ...failures.map((f) => `- ${f.slice(0, 400)}`),
-      "",
-      "Fix these specific problems. Keep everything that already worked.",
-    );
-  }
-
-  return parts.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +111,20 @@ async function runBuilder(
   timeoutMs: number,
 ): Promise<{ ok: boolean; output: string; error?: string }> {
   const ocBin = resolveOpencodeBinary(config.OPENCODE_BIN);
+  // The generated module and its test are the contract. Once both exist and are
+  // non-trivial, the build has produced everything QA needs, so there is no
+  // reason to keep waiting for the agent to finish talking.
+  const requiredFiles = [join(workDir, "src", "core.mjs"), join(workDir, "core.test.mjs")];
+
+  const isComplete = (): boolean =>
+    requiredFiles.every((path) => {
+      try {
+        return readFileSync(path, "utf8").trim().length > 40;
+      } catch {
+        return false;
+      }
+    });
+
   const ocBinDir: string = ocBin.replace(/\/[^/]+$/, "");
 
   // OpenCode's own home lives beside the project, never inside it. Keeping it
@@ -286,6 +227,8 @@ async function runBuilder(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let completedEarly = false;
+    let settled = false;
 
     const child = spawn("bwrap", args, {
       env: {
@@ -297,10 +240,69 @@ async function runBuilder(
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    const settle = (code: number | null, error?: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearInterval(watcher);
+
+      if (completedEarly) {
+        // The files QA needs are on disk. A non-zero exit here usually means
+        // the agent was still mid-turn when it was stopped, which is not a
+        // build failure.
+        resolve({ ok: true, output: `${stdout}\n${stderr}`.slice(-6_000) });
+        return;
+      }
+
+      if (timedOut) {
+        resolve({
+          ok: false,
+          output: `${stdout}\n${stderr}`.slice(-6_000),
+          error: `Builder timed out after ${Math.round(timeoutMs / 1000)}s without producing src/core.mjs and core.test.mjs`,
+        });
+        return;
+      }
+
+      resolve({
+        ok: code === 0,
+        output: `${stdout}\n${stderr}`.slice(-6_000),
+        ...(code === 0
+          ? {}
+          : { error: error ?? `Builder exited with code ${code}` }),
+      });
+    };
+
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
+      settle(null);
     }, timeoutMs);
+
+    /**
+     * Stop as soon as the required files are complete.
+     *
+     * A short grace period lets the agent finish writing a file before the
+     * process is stopped, so a partially-written file is not mistaken for a
+     * finished one.
+     */
+    let completeSince: number | null = null;
+    const watcher = setInterval(() => {
+      if (settled || timedOut) return;
+      if (!isComplete()) {
+        completeSince = null;
+        return;
+      }
+      const now = Date.now();
+      if (completeSince === null) {
+        completeSince = now;
+        return;
+      }
+      if (now - completeSince >= 1_500) {
+        completedEarly = true;
+        child.kill("SIGKILL");
+        settle(0);
+      }
+    }, 500);
 
     child.stdout.on("data", (d: Buffer) => {
       stdout += d.toString();
@@ -310,25 +312,11 @@ async function runBuilder(
     });
 
     child.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ ok: false, output: stdout, error: `Could not start the builder: ${err.message}` });
+      settle(null, `Could not start the builder: ${err.message}`);
     });
 
     child.on("close", (code) => {
-      clearTimeout(timer);
-      if (timedOut) {
-        resolve({
-          ok: false,
-          output: stdout,
-          error: `Builder timed out after ${Math.round(timeoutMs / 1000)}s`,
-        });
-        return;
-      }
-      resolve({
-        ok: code === 0,
-        output: `${stdout}\n${stderr}`.slice(-6_000),
-        ...(code === 0 ? {} : { error: `Builder exited with code ${code}` }),
-      });
+      settle(code);
     });
   });
 }
@@ -428,13 +416,19 @@ export async function buildApprovedOpportunity(
   input: BuildPipelineInput,
 ): Promise<BuildStatus> {
   const { opportunity } = input;
-  if (!opportunity.brief) {
-    throw new Error("Cannot build an opportunity without an approved brief");
-  }
 
-  const brief = opportunity.brief;
-  const spec = buildSpec(brief);
-  const workDir = prepareWorkspace(opportunity.id);
+  const workspaceDirForBuild = prepareWorkspace(opportunity.id);
+
+  // Write the fixed scaffolding before the agent runs. The agent only supplies
+  // the module and its tests, which is what makes the build fast and the QA
+  // harness dependable.
+  const vars = templateVars(opportunity);
+  mkdirSync(join(workspaceDirForBuild, "src"), { recursive: true });
+  writeFileSync(join(workspaceDirForBuild, "package.json"), packageJson(vars));
+  writeFileSync(join(workspaceDirForBuild, "src", "index.mjs"), entryPoint(vars));
+  writeFileSync(join(workspaceDirForBuild, "README.md"), readme(vars));
+
+  const workDir = workspaceDirForBuild;
 
   const post = async (body: string): Promise<void> => {
     if (!input.hub.isReady) return;
@@ -447,16 +441,16 @@ export async function buildApprovedOpportunity(
 
   await post(
     [
-      `Starting the autonomous build for: ${spec.title}`,
+      `Starting the autonomous build for: ${vars.title}`,
       "",
-      `Must-have features: ${spec.mustFeatures.join("; ")}`,
+      `Must-have features: ${vars.mustFeatures.join("; ") || "core behaviour from the brief"}`,
       "The generated project runs in an isolated workspace. QA will test it before it is reported ready.",
     ].join("\n"),
   );
 
   await recordActivity({
     phase: "build",
-    summary: `Builder started: ${spec.title}`,
+    summary: `Builder started: ${vars.title}`,
     agentKey: "builder",
     room: "build-studio",
     viaSwitch: input.hub.isReady,
@@ -477,7 +471,7 @@ export async function buildApprovedOpportunity(
 
     const build = await runBuilder(
       workDir,
-      builderPrompt(spec, attempts - 1, failures),
+      builderPrompt(vars, attempts - 1, failures),
       config.BUILD_TIMEOUT_MS,
     );
 
@@ -523,7 +517,7 @@ export async function buildApprovedOpportunity(
     if (qa.passed) {
       await post(
         [
-          `Build complete and QA passed for: ${spec.title}`,
+          `Build complete and QA passed for: ${vars.title}`,
           "",
           `${files.length} files written, tests passing.`,
           `${attempts} build attempt(s).`,
@@ -554,7 +548,7 @@ export async function buildApprovedOpportunity(
 
     await post(
       [
-        `QA failed on attempt ${attempts} for: ${spec.title}`,
+        `QA failed on attempt ${attempts} for: ${vars.title}`,
         "",
         "Failures:",
         ...qa.failures.map((f) => `- ${f}`),
