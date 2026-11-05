@@ -28,13 +28,13 @@ export const JUROR_SPECS: Record<JurorKey, AgentSpec> = {
   investor: {
     key: "investor",
     displayName: "Investor",
-    role: "Decide whether this opportunity is worth funding and building now.",
-    lens: "You care about market size, monetization and scalability. You are unmoved by technical elegance or user sympathy; a real problem that nobody will pay to solve is not a company.",
+    role: "Decide whether this opportunity is worth building now, given what it could become.",
+    lens: "You care about market potential, monetization and scalability. You are unmoved by technical elegance or user sympathy, but you also know that a pre-revenue forum problem cannot show willingness to pay yet. You ask whether a real niche exists that someone would eventually pay for.",
   },
   "technical-architect": {
     key: "technical-architect",
     displayName: "Technical Architect",
-    role: "Decide whether this can actually be built well by a small team.",
+    role: "Decide whether this can actually be built well by a small team in days.",
     lens: "You care about feasibility, complexity and delivery risk. You distinguish 'hard' from 'underspecified', and you discount plans that depend on data or integrations the team does not have.",
   },
   "customer-advocate": {
@@ -89,10 +89,18 @@ export async function runJury(input: JuryInput): Promise<JuryOutput> {
   const instructionFor = (juror: JurorKey): string =>
     [
       `You are the ${JUROR_SPECS[juror].displayName}. Evaluate this opportunity independently.`,
+      "",
+      "The decision in front of you is narrow: should a small team spend days building a",
+      "testable MVP for this problem? It is NOT whether this is a proven business or a",
+      "fundable company. Public discussion forums rarely contain willingness-to-pay data, so",
+      "do not vote no merely because revenue is unproven — vote no when the problem is too",
+      "weak, too vague, already well served, or not worth the build time.",
+      "",
       "Return: your juror key, your vote (yes or no), a 0-100 score,",
       "a one-line summary, full reasoning, the evidence ids that support your position,",
       "your specific concerns, and any conditions you would require for approval.",
       "Judge the evidence as presented. Do not assume facts not in the bundle.",
+      "Score 50 means genuinely uncertain; use the full range.",
     ].join(" ");
 
   const results = await Promise.all(
