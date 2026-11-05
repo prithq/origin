@@ -416,6 +416,19 @@ export interface SwitchParticipant {
   room_role?: string | null;
 }
 
+/** One entry from a room's real conversation history. */
+export interface SwitchTranscriptEntry {
+  id: string;
+  kind: "message" | "room_join";
+  sender: string;
+  sender_name: string;
+  body: string;
+  timestamp: number;
+  attachments?: unknown[];
+  sender_kind?: string;
+  on_behalf_of?: string;
+}
+
 export interface RegisteredAgent {
   id: string;
   api_key: string;

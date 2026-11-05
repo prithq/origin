@@ -28,6 +28,7 @@ import {
   type MessagePayload,
   type SwitchFrame,
   type SwitchRoomContext,
+  type SwitchTranscriptEntry,
 } from "./client.js";
 import { SwitchRegistryStore } from "./registry-store.js";
 
@@ -466,6 +467,44 @@ export class SwitchHub {
     const caller = this.clients.get(spec?.agents[0] ?? "product-strategist");
     if (!caller) return [];
     return caller.op<SwitchRoomContext["participants"]>("list_participants", {});
+  }
+
+  /**
+   * The room's real conversation, read back from SWITCH.
+   *
+   * This is what the dashboard renders as the SWITCH transcript, so it is
+   * evidence that the room exists rather than a mirror of our own logs.
+   */
+  async readTranscript(
+    roomKey: RoomKey,
+    limit = 50,
+  ): Promise<SwitchTranscriptEntry[]> {
+    const roomId = this.roomId(roomKey);
+    if (!roomId) return [];
+    const spec = ROOM_SPECS.find((r) => r.key === roomKey);
+    const client = this.clients.get(spec?.agents[0] ?? "product-strategist");
+    if (!client) return [];
+
+    try {
+      const context = await client.op<{
+        threads: Array<{
+          root: SwitchTranscriptEntry;
+          replies: SwitchTranscriptEntry[];
+        }>;
+      }>("read_context", { limit });
+
+      const entries: SwitchTranscriptEntry[] = [];
+      for (const thread of context.threads ?? []) {
+        if (thread.root) entries.push(thread.root);
+        for (const reply of thread.replies ?? []) entries.push(reply);
+      }
+      return entries
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .slice(-limit);
+    } catch (err) {
+      logger.warn(`Could not read ${roomKey} transcript: ${(err as Error).message}`);
+      return [];
+    }
   }
 
   /** Post as a specific agent into its own room. */
