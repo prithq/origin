@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design tokens.
+
+  Two complete themes are defined as token sets, so every component reads
+  semantic names and never a raw colour. Dark is the default; light is a real
+  alternative rather than an inverted afterthought.
+
+  The palette is deliberately narrow: neutral greys, one cool-blue accent, and
+  semantic status colours used sparingly. Borders are hairline, surfaces are
+  flat, and there are no gradients or glows.
+*/
+
+@layer base {
+  :root,
+  [data-theme="dark"] {
+    --bg: 240 6% 6%;
+    --bg-subtle: 240 5% 8%;
+    --surface: 240 5% 10%;
+    --surface-hover: 240 5% 13%;
+    --surface-raised: 240 5% 12%;
+
+    --border: 240 5% 17%;
+    --border-strong: 240 5% 24%;
+
+    --text: 240 6% 93%;
+    --text-muted: 240 4% 64%;
+    --text-subtle: 240 4% 48%;
+
+    --accent: 214 90% 62%;
+    --accent-muted: 214 90% 62%;
+    --accent-fg: 240 6% 6%;
+
+    --success: 152 58% 48%;
+    --warning: 38 92% 58%;
+    --danger: 0 72% 62%;
+    --info: 214 90% 62%;
+
+    --radius: 0.5rem;
+  }
+
+  [data-theme="light"] {
+    --bg: 0 0% 100%;
+    --bg-subtle: 240 20% 98.5%;
+    --surface: 0 0% 100%;
+    --surface-hover: 240 20% 96.5%;
+    --surface-raised: 0 0% 100%;
+
+    --border: 240 10% 89%;
+    --border-strong: 240 8% 78%;
+
+    --text: 240 10% 12%;
+    --text-muted: 240 5% 42%;
+    --text-subtle: 240 4% 55%;
+
+    --accent: 214 84% 48%;
+    --accent-muted: 214 84% 48%;
+    --accent-fg: 0 0% 100%;
+
+    --success: 152 62% 34%;
+    --warning: 32 88% 42%;
+    --danger: 0 68% 48%;
+    --info: 214 84% 48%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  html[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: hsl(var(--bg));
+    color: hsl(var(--text));
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  /* A single consistent focus treatment, visible on both themes. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--accent));
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: hsl(var(--accent) / 0.25);
+  }
+
+  /* Numeric columns line up; otherwise scores and counts look ragged. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .surface {
+    background-color: hsl(var(--surface));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+  }
+
+  .panel {
+    background-color: hsl(var(--surface));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+  }
+
+  .hairline {
+    border-color: hsl(var(--border));
+  }
+
+  .text-muted {
+    color: hsl(var(--text-muted));
+  }
+
+  .text-subtle {
+    color: hsl(var(--text-subtle));
+  }
+
+  /*
+    A very small set of animations, used only to indicate that work is
+    happening. Nothing decorative.
+  */
+  @keyframes origin-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+
+  .pulse-dot {
+    animation: origin-pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes origin-shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+
+  .skeleton {
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--surface)) 0%,
+      hsl(var(--surface-hover)) 50%,
+      hsl(var(--surface)) 100%
+    );
+    background-size: 400px 100%;
+    animation: origin-shimmer 1.6s linear infinite;
+    border-radius: 4px;
+  }
+}
+
+/* Scrollbars: present but quiet, consistent across themes. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--border-strong));
+  border-radius: 999px;
+  border: 3px solid hsl(var(--bg));
+}

@@ -1,8 +1,11 @@
-import type { AgentKey, RoomKey } from "@origin/contracts";
 import { config, assertLiveRequirements } from "./config.js";
 import { createApp } from "./app.js";
 import { logger } from "./lib/logger.js";
 import { SwitchHub } from "./switch/hub.js";
+import { EventRouter } from "./switch/event-router.js";
+import { Orchestrator } from "./workflow/orchestrator.js";
+import { getStore } from "./db/store.js";
+import { isSandboxAvailable } from "./build/sandbox.js";
 
 async function main(): Promise<void> {
   const problems = assertLiveRequirements();
@@ -12,16 +15,30 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const store = getStore();
+  const existing = store.listOpportunities();
+  if (existing.length > 0) {
+    // Recovery check: persisted opportunities must still satisfy their schema.
+    const counts: Record<string, number> = {};
+    for (const o of existing) counts[o.state] = (counts[o.state] ?? 0) + 1;
+    logger.info(`Recovered ${existing.length} opportunity record(s): ${JSON.stringify(counts)}`);
+  }
+
+  // The orchestrator needs the hub, and the router needs both. The hub is
+  // constructed first with a handler that the router supplies afterwards, which
+  // avoids a circular construction without hiding the dependency.
+  let router: EventRouter | null = null;
+
   const hub = new SwitchHub({
-    onEvent: ({ agentKey, roomKey, payload }) => {
-      // The workflow engine subscribes here once it exists. Until then the hub
-      // still records that a real SWITCH event arrived, so the connection is
-      // observably live rather than merely established.
-      logger.debug(
-        `SWITCH event from ${payload.sender_name} to ${agentKey} in ${roomKey ?? "unknown room"}`,
-      );
+    connectionIdPrefix: "origin-server",
+    onEvent: async ({ agentKey, roomKey, payload }) => {
+      if (!router) return;
+      await router.handle({ agentKey, roomKey, payload });
     },
   });
+
+  const orchestrator = new Orchestrator({ hub });
+  router = new EventRouter({ hub, orchestrator });
 
   try {
     await hub.start();
@@ -33,11 +50,17 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const app = createApp({ hub });
+  if (!isSandboxAvailable()) {
+    logger.warn(
+      "bubblewrap is not installed: the Builder will refuse to run. Builds are disabled rather than executed unsafely.",
+    );
+  }
+
+  const app = createApp({ hub, orchestrator });
   const server = app.listen(config.PORT, () => {
     logger.info(`Origin API listening on http://localhost:${config.PORT}`);
-    logger.info(`LLM mode: ${config.LLM_MODE} (model ${config.DEEPRELAY_MODEL})`);
-    logger.info(`SWITCH mode: ${config.SWITCH_MODE}`);
+    logger.info(`Model: ${config.DEEPRELAY_MODEL} via DeepRelay`);
+    logger.info(`SWITCH mode: ${config.SWITCH_MODE}, ready=${hub.isReady}`);
   });
 
   const shutdown = async (signal: string): Promise<void> => {

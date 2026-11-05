@@ -28,6 +28,7 @@ import {
   type MessagePayload,
   type SwitchFrame,
   type SwitchRoomContext,
+  type SwitchTranscriptEntry,
 } from "./client.js";
 import { SwitchRegistryStore } from "./registry-store.js";
 
@@ -459,13 +460,118 @@ export class SwitchHub {
   }
 
   /** The human participants currently present in a room. */
+  private readonly participantCache = new Map<RoomKey, SwitchRoomContext["participants"]>();
+  private readonly participantCacheAt = new Map<RoomKey, number>();
+
+  /**
+   * The human participants currently present in a room.
+   *
+   * `list_participants` is room-bound (it requires the caller's session to hold
+   * a room claim), so the specific agent that can answer it changes as sessions
+   * reconnect. Rather than hard-coding one caller, this tries the room's own
+   * agents first and then the wider roster, returning the first answer that
+   * works.
+   *
+   * A successful answer is cached. If every agent refuses — which happens for a
+   * moment while sessions rejoin — the cached answer is returned instead of an
+   * empty list. The vote gate depends on this: classification still comes from
+   * SWITCH, and a transport blip must not silently change who counts as human.
+   */
   async listParticipants(roomKey: RoomKey): Promise<SwitchRoomContext["participants"]> {
     const roomId = this.roomId(roomKey);
     if (!roomId) return [];
+
+    const roomAgents = ROOM_SPECS.find((r) => r.key === roomKey)?.agents ?? [];
+    const candidates = [
+      ...roomAgents.map((key) => this.clients.get(key)),
+      this.clients.get("product-strategist"),
+      ...this.clients.values(),
+    ].filter((c): c is SwitchClient => Boolean(c));
+
+    const attempted = new Set<string>();
+    for (const client of candidates) {
+      if (attempted.has(client.agentId)) continue;
+      attempted.add(client.agentId);
+      try {
+        const participants = await client.op<SwitchRoomContext["participants"]>(
+          "list_participants",
+          {},
+        );
+        if (Array.isArray(participants) && participants.length > 0) {
+          this.participantCache.set(roomKey, participants);
+          this.participantCacheAt.set(roomKey, Date.now());
+          return participants;
+        }
+      } catch {
+        // This agent does not hold the room claim; try the next one.
+      }
+    }
+
+    const cached = this.participantCache.get(roomKey);
+    if (cached) {
+      const age = Date.now() - (this.participantCacheAt.get(roomKey) ?? 0);
+      logger.warn(
+        `Participant lookup for ${roomKey} failed; using cached list from ${Math.round(age / 1000)}s ago`,
+      );
+      return cached;
+    }
+
+    logger.debug(`Could not list participants for ${roomKey} from any connected agent`);
+    return [];
+  }
+
+  /**
+   * The room's real conversation, read back from SWITCH.
+   *
+   * This is what the dashboard renders as the SWITCH transcript, so it is
+   * evidence that the room exists rather than a mirror of our own logs.
+   *
+   * `read_context` reads forward from the room's beginning until it has
+   * collected `limit` entries. Asking for a raw limit therefore returns the
+   * *oldest* messages — on a room that has been used all day, the dashboard
+   * would show the joining notices and nothing recent. A recent `since` window
+   * is requested first, and the full history is only used when that window is
+   * empty (a quiet room).
+   */
+  async readTranscript(
+    roomKey: RoomKey,
+    limit = 50,
+  ): Promise<SwitchTranscriptEntry[]> {
+    const roomId = this.roomId(roomKey);
+    if (!roomId) return [];
     const spec = ROOM_SPECS.find((r) => r.key === roomKey);
-    const caller = this.clients.get(spec?.agents[0] ?? "product-strategist");
-    if (!caller) return [];
-    return caller.op<SwitchRoomContext["participants"]>("list_participants", {});
+    const client = this.clients.get(spec?.agents[0] ?? "product-strategist");
+    if (!client) return [];
+
+    const collect = async (since?: string): Promise<SwitchTranscriptEntry[]> => {
+      const context = await client.op<{
+        threads: Array<{
+          root: SwitchTranscriptEntry;
+          replies: SwitchTranscriptEntry[];
+        }>;
+      }>("read_context", {
+        limit,
+        ...(since ? { since } : {}),
+      });
+
+      const entries: SwitchTranscriptEntry[] = [];
+      for (const thread of context.threads ?? []) {
+        if (thread.root) entries.push(thread.root);
+        for (const reply of thread.replies ?? []) entries.push(reply);
+      }
+      return entries.sort((a, b) => a.timestamp - b.timestamp).slice(-limit);
+    };
+
+    try {
+      // A fortnight covers any realistic demo session without scanning history.
+      const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+      const recent = await collect(since);
+      if (recent.length > 0) return recent;
+      return await collect();
+    } catch (err) {
+      logger.warn(`Could not read ${roomKey} transcript: ${(err as Error).message}`);
+      return [];
+    }
   }
 
   /** Post as a specific agent into its own room. */

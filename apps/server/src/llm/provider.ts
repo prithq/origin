@@ -1,15 +1,19 @@
 /**
  * LLM provider abstraction.
  *
- * Two implementations, selected by LLM_MODE and never mixed:
- *   - live:  calls DeepRelay's OpenAI-compatible endpoint.
- *   - mock:  returns deterministic fixtures derived from the input, so the
- *            whole workflow can be exercised without a network or a key.
+ * One implementation: DeepRelay's OpenAI-compatible endpoint. The interface
+ * exists so a test can substitute a provider, not so a production run can
+ * silently swap in generated text.
  *
- * The mock is not a fallback. If live is configured and the call fails, the
- * error propagates. Silently degrading a live run to fake output would make
- * fabricated research indistinguishable from real research, which is the one
- * thing this product must never do.
+ * There is deliberately no built-in mock mode. An earlier version had one with
+ * no fixtures registered, which meant selecting it produced a guaranteed
+ * failure while appearing to be a supported configuration. A mode that looks
+ * supported but cannot work is worse than no mode: it invites a demo that
+ * quietly shows nothing real.
+ *
+ * A live failure propagates. Silently degrading to fake output would make
+ * fabricated research indistinguishable from retrieved evidence, which is the
+ * one thing this product must never do.
  */
 
 import type { z } from "zod";
@@ -145,58 +149,10 @@ class DeepRelayProvider implements LlmProvider {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Mock provider
-// ---------------------------------------------------------------------------
-
-export type MockFixture = (request: LlmRequest) => unknown;
-
-/**
- * Mock fixtures are registered by task key. A missing fixture is an error, not
- * an empty object: a mock run that silently produces nothing is useless for
- * testing and hides broken wiring.
- */
-class MockProvider implements LlmProvider {
-  readonly mode = "mock" as const;
-  readonly model = "mock/deterministic";
-
-  private readonly fixtures = new Map<string, MockFixture>();
-
-  register(taskKey: string, fixture: MockFixture): this {
-    this.fixtures.set(taskKey, fixture);
-    return this;
-  }
-
-  async complete(request: LlmRequest): Promise<LlmResponse> {
-    const started = Date.now();
-    const taskKey = request.taskKey ?? "default";
-    const fixture = this.fixtures.get(taskKey);
-    if (!fixture) {
-      throw new LlmError(
-        `No mock fixture registered for task "${taskKey}". ` +
-          "Mock mode is deterministic and explicit; it does not invent responses.",
-      );
-    }
-    const value = fixture(request);
-    const text = typeof value === "string" ? value : JSON.stringify(value);
-    logger.debug(`mock completion for ${taskKey}`);
-    return {
-      text,
-      model: this.model,
-      durationMs: Date.now() - started,
-      usage: { promptTokens: 0, completionTokens: 0 },
-    };
-  }
-}
-
-export const mockProvider = new MockProvider();
-
 let provider: LlmProvider | null = null;
 
 export function getProvider(): LlmProvider {
-  if (!provider) {
-    provider = config.LLM_MODE === "live" ? new DeepRelayProvider() : mockProvider;
-  }
+  provider ??= new DeepRelayProvider();
   return provider;
 }
 

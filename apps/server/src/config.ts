@@ -24,7 +24,6 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8787),
   APP_BASE_URL: z.string().url().default("http://localhost:5173"),
 
-  LLM_MODE: z.enum(["live", "mock"]).default("live"),
   DEEPRELAY_BASE_URL: z.string().url().default("https://api.deeprelay.ai/v1"),
   DEEPRELAY_API_KEY: z.string().optional(),
   DEEPRELAY_MODEL: z.string().default("deepseek-v4.1-flash"),
@@ -70,7 +69,6 @@ export const config = {
 
 export type Config = typeof config;
 
-export const isLiveLlm = config.LLM_MODE === "live";
 export const isLiveSwitch = config.SWITCH_MODE === "live";
 
 /**
@@ -79,8 +77,8 @@ export const isLiveSwitch = config.SWITCH_MODE === "live";
  */
 export function assertLiveRequirements(): string[] {
   const problems: string[] = [];
-  if (isLiveLlm && !config.DEEPRELAY_API_KEY) {
-    problems.push("DEEPRELAY_API_KEY is required when LLM_MODE=live");
+  if (!config.DEEPRELAY_API_KEY) {
+    problems.push("DEEPRELAY_API_KEY is required: Origin always calls the model live");
   }
   if (isLiveSwitch && !config.SWITCH_REGISTRATION_TOKEN) {
     problems.push("SWITCH_REGISTRATION_TOKEN is required when SWITCH_MODE=live");
