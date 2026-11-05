@@ -127,6 +127,31 @@ function prepareWorkspace(opportunityId: string): string {
 }
 
 /**
+ * Resolves the OpenCode executable to an absolute path.
+ *
+ * bwrap executes the command directly, so a bare name like "opencode" is not
+ * resolved against PATH inside the sandbox. Resolving here means a
+ * misconfiguration fails loudly at the start of a build rather than surfacing
+ * as an opaque non-zero exit from the sandbox.
+ */
+function resolveOpencodeBinary(configured: string): string {
+  if (configured.includes("/")) return configured;
+
+  const fromPath = (process.env.PATH ?? "")
+    .split(":")
+    .filter(Boolean)
+    .map((dir) => join(dir, configured))
+    .find((candidate) => existsSync(candidate));
+
+  if (fromPath) return fromPath;
+
+  throw new Error(
+    `Could not find the OpenCode executable "${configured}" on PATH. ` +
+      "Set OPENCODE_BIN to an absolute path.",
+  );
+}
+
+/**
  * Runs OpenCode inside a sandbox with a throwaway OpenCode home.
  *
  * The provider key is passed through the environment. The temporary config is
@@ -138,8 +163,8 @@ async function runBuilder(
   prompt: string,
   timeoutMs: number,
 ): Promise<{ ok: boolean; output: string; error?: string }> {
-  const ocBin = config.OPENCODE_BIN;
-  const ocBinDir = ocBin.includes("/") ? ocBin.replace(/\/[^/]+$/, "") : null;
+  const ocBin = resolveOpencodeBinary(config.OPENCODE_BIN);
+  const ocBinDir: string = ocBin.replace(/\/[^/]+$/, "");
 
   const sandboxRoot = join(workDir, ".origin");
   const ocConfigDir = join(sandboxRoot, "config");
@@ -149,6 +174,10 @@ async function runBuilder(
   mkdirSync(ocDataDir, { recursive: true });
   mkdirSync(ocCacheDir, { recursive: true });
 
+  // The config must declare the model key exactly as OpenCode addresses it:
+  // "<provider>/<model>". Declaring a bare model id leaves it unresolved and
+  // OpenCode reports "Model unavailable".
+  const modelKey = config.OPENCODE_MODEL.replace(/^deeprelay\//, "");
   writeFileSync(
     join(ocConfigDir, "opencode", "opencode.json"),
     JSON.stringify(
@@ -164,7 +193,7 @@ async function runBuilder(
               apiKey: "{env:DEEPRELAY_API_KEY}",
             },
             models: {
-              [config.DEEPRELAY_MODEL]: { name: config.DEEPRELAY_MODEL },
+              [modelKey]: { name: modelKey },
             },
           },
         },
@@ -425,6 +454,11 @@ export async function buildApprovedOpportunity(
     if (!build.ok) {
       lastError = build.error ?? "Builder failed";
       logger.warn(`Build attempt ${attempts} failed: ${lastError}`);
+      // Builder output is the only diagnostic for why it stopped; log it so a
+      // failure can be diagnosed instead of guessed at.
+      if (build.output.trim()) {
+        logger.warn(`Builder output (tail):\n${build.output.slice(-2_500)}`);
+      }
       await recordActivity({
         phase: "build",
         summary: `Build attempt ${attempts} failed`,
