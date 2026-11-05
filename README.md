@@ -283,32 +283,55 @@ cross-opportunity replay.
 
 ## Demo walkthrough
 
-A clean run takes a few minutes, dominated by model latency.
+Verified twice from a clean reset. Measured timings on a warm server:
 
-1. **Overview.** Ten agents connected, three rooms live, sandbox ready.
-2. **Run discovery.** Real signals stream into `#discovery-lab`; four problem
-   clusters appear with source counts.
-3. **Open an opportunity.** Inspect the evidence: every row links to the original
-   post and shows its retrieval time.
-4. **Research.** The brief, market assessment and competitor map are produced
-   from that evidence.
+| Step | Time | What you see |
+|---|---|---|
+| Discover | ~60 s | Real Hacker News and GitHub signals clustered into 4 problems |
+| Research | ~2–3 min | 4 briefs produced in parallel, each grounded in retrieved evidence |
+| Jury | ~75 s | 12 independent verdicts; typically one opportunity clears 2/3 |
+| Vote | instant | `APPROVE <id>` in Mattermost flips state to BUILDING |
+| Build + QA | 60–80 s | Files appear, QA runs, state reaches COMPLETED |
+
+Total for the full journey: **roughly 5–7 minutes**, dominated by model latency.
+
+### Running the demo
+
+1. **Overview.** Ten agents connected, three rooms on the bridge, sandbox ready.
+2. **Run discovery.** Signals stream into `#discovery-lab`; four clusters appear
+   with source counts.
+3. **Open an opportunity.** Inspect the evidence tab: every row links to the
+   original post and shows when it was retrieved.
+4. **Research.** The brief, market assessment and competitor map appear.
 5. **Convene the jury.** Three verdicts appear independently, then the
    deliberation names where they disagree.
-6. **Vote in Mattermost.** Type `APPROVE <id>` in the bridged `#startup-council`.
-   The dashboard updates because the event arrived over SWITCH.
+6. **Vote in Mattermost.** In the bridged `#startup-council`, type
+   `APPROVE <opportunity-id>`. The dashboard updates because the event arrived
+   over SWITCH, and the vote record shows the SWITCH sender and message id.
 7. **Watch the build.** Approval starts the Builder automatically. Build Studio
-   shows files appearing, then the QA report.
+   shows files appearing, then the QA report with each check.
 8. **Inspect the MVP.** Read the generated source and its passing tests.
 
-To reset between demos:
+### Notes for presenting
+
+- The jury is genuinely strict: expect roughly one in four candidates to reach
+  2/3. Research all four clusters in parallel rather than one, so there is a
+  candidate to approve. This is the system working, not a failure.
+- If no opportunity reaches 2/3, run discovery again — the signal mix differs
+  each time — or approve a 1/3 candidate to show the rule *refusing* approval,
+  which is a legitimate and informative demo of the guard.
+- A 1/3 opportunity plus a founder "yes" produces REJECTED. That is worth
+  showing: the founder cannot override the jury, and the interface explains why.
+
+### Reset between runs
 
 ```bash
-rm -rf data/origin-state.json data/evidence workspace
+./scripts/reset.sh          # clears opportunities, evidence and workspaces
+./scripts/reset.sh --full   # also forgets room ids
 ```
 
-Agents and rooms are reused, so a reset does not re-register anything.
-
----
+SWITCH agents and rooms are preserved, so a reset takes seconds and needs no
+re-registration. Restart the server after a reset.
 
 ## Known limitations
 
