@@ -11,14 +11,21 @@ import { mkdirSync, readFileSync, existsSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import {
   activityEventSchema,
+  evidenceItemSchema,
   opportunitySchema,
   transitionSchema,
   type ActivityEvent,
+  type EvidenceItem,
   type Opportunity,
   type Transition,
 } from "@origin/contracts";
 import { z } from "zod";
 import { config } from "../config.js";
+
+const evidenceFileSchema = z.object({
+  version: z.literal(1),
+  items: z.array(evidenceItemSchema),
+});
 
 const stateFileSchema = z.object({
   version: z.literal(1),
@@ -104,6 +111,32 @@ export class Store {
       this.state.activity = this.state.activity.slice(-1_500);
     }
     await this.persist();
+  }
+
+  /**
+   * Evidence is stored per opportunity, separate from the opportunity record.
+   *
+   * It is a snapshot: the sources an opportunity was judged on must not change
+   * because someone ran discovery again.
+   */
+  async saveEvidence(opportunityId: string, items: EvidenceItem[]): Promise<void> {
+    const path = join(config.dataDir, "evidence", `${opportunityId}.json`);
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ version: 1, items }, null, 2), { mode: 0o600 });
+    renameSync(tmp, path);
+  }
+
+  async loadEvidence(opportunityId: string): Promise<EvidenceItem[]> {
+    const path = join(config.dataDir, "evidence", `${opportunityId}.json`);
+    if (!existsSync(path)) return [];
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as { items?: unknown };
+      const result = evidenceFileSchema.safeParse(parsed);
+      return result.success ? result.data.items : [];
+    } catch {
+      return [];
+    }
   }
 
   listActivity(limit = 100, opportunityId?: string): ActivityEvent[] {

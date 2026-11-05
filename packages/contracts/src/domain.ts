@@ -175,6 +175,7 @@ export const qaCheckSchema = z.object({
   status: z.enum(["passed", "failed", "skipped"]),
   detail: z.string().default(""),
 });
+export type QaCheck = z.infer<typeof qaCheckSchema>;
 
 export const qaReportSchema = z.object({
   passed: z.boolean(),
