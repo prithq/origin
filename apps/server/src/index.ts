@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   const app = createApp({ hub, orchestrator });
   const server = app.listen(config.PORT, () => {
     logger.info(`Origin API listening on http://localhost:${config.PORT}`);
-    logger.info(`LLM mode: ${config.LLM_MODE} (model ${config.DEEPRELAY_MODEL})`);
+    logger.info(`Model: ${config.DEEPRELAY_MODEL} via DeepRelay`);
     logger.info(`SWITCH mode: ${config.SWITCH_MODE}, ready=${hub.isReady}`);
   });
 

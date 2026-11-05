@@ -64,9 +64,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface HealthResponse {
   ok: boolean;
-  llmMode: "live" | "mock";
   switchMode: "live" | "offline";
-  liveLlm: boolean;
+  modelConfigured: boolean;
   liveSwitch: boolean;
   model: string;
   sandboxAvailable: boolean;

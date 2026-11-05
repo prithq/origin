@@ -10,7 +10,7 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z, ZodError } from "zod";
 import { AGENT_SPECS, ROOM_SPECS, type Opportunity } from "@origin/contracts";
-import { config, isLiveLlm, isLiveSwitch } from "./config.js";
+import { config, isLiveSwitch } from "./config.js";
 import { getStore } from "./db/store.js";
 import { addStreamClient, heartbeat, streamClientCount } from "./lib/events.js";
 import { logger } from "./lib/logger.js";
@@ -72,9 +72,8 @@ export function createApp(ctx: AppContext): express.Express {
   app.get("/api/health", async (_req, res) => {
     res.json({
       ok: true,
-      llmMode: config.LLM_MODE,
       switchMode: config.SWITCH_MODE,
-      liveLlm: isLiveLlm,
+      modelConfigured: Boolean(config.DEEPRELAY_API_KEY),
       liveSwitch: isLiveSwitch,
       model: config.DEEPRELAY_MODEL,
       sandboxAvailable: isSandboxAvailable(),

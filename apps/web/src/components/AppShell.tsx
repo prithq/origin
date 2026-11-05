@@ -155,8 +155,8 @@ export function AppShell() {
             />
             <StatusLine
               label="Model"
-              value={health?.llmMode ?? "unknown"}
-              tone={health?.liveLlm ? "success" : "warning"}
+              value={health?.modelConfigured ? "live" : "missing"}
+              tone={health?.modelConfigured ? "success" : "danger"}
             />
             <StatusLine
               label="Sandbox"
@@ -177,15 +177,15 @@ export function AppShell() {
           </div>
 
           <div className="hidden items-center gap-2 lg:flex">
-            {health?.liveLlm && health?.liveSwitch ? (
+            {health?.modelConfigured && health?.liveSwitch ? (
               <span className="text-2xs text-subtle">
                 Live agents, real evidence, real builds
               </span>
             ) : (
               <span className="text-2xs text-warning">
-                {!health?.liveSwitch
-                  ? "SWITCH offline mode — agent collaboration is mocked"
-                  : "Model mock mode — agent output is deterministic"}
+                {!health?.modelConfigured
+                  ? "Model credential is missing — agent calls will fail"
+                  : "SWITCH offline mode — agent collaboration is mocked"}
               </span>
             )}
           </div>

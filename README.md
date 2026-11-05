@@ -47,8 +47,8 @@ Discovery  ->  Clustering  ->  Research  ->  Opportunity brief
 | QA | The generated project's own tests, executed with no network |
 | Dashboard | Real backend data over REST plus server-sent events |
 
-There is a deterministic mock mode for the model layer, selected by `LLM_MODE=mock`
-and always labelled in the interface. Live mode never silently degrades to it.
+There is no mock mode. Origin always calls the model live, and a failure surfaces
+rather than being replaced with generated text.
 
 ---
 
@@ -134,7 +134,6 @@ token is missing. That is deliberate: it will not pretend to work.
 
 | Variable | Purpose |
 |---|---|
-| `LLM_MODE` | `live` calls DeepRelay; `mock` returns deterministic fixtures |
 | `DEEPRELAY_API_KEY` | Model credential. Server-side only |
 | `DEEPRELAY_MODEL` | Default `deepseek-v4.1-flash` |
 | `LLM_MAX_OUTPUT_TOKENS` | Output budget. The model is a reasoning model, so thinking counts |
