@@ -263,7 +263,10 @@ export function Skeleton({ className }: { className?: string }) {
 }
 
 export function ScoreBar({ score, label }: { score: number; label?: string }) {
-  const tone = score >= 65 ? "bg-success" : score >= 40 ? "bg-warning" : "bg-danger";
+  // Confidence is not a pass/fail grade. Early research legitimately scores low,
+  // so the bar uses a neutral accent through the middle and only turns
+  // warning-coloured near zero, where it signals genuinely missing evidence.
+  const tone = score >= 60 ? "bg-success" : score >= 30 ? "bg-accent" : "bg-warning";
   return (
     <div className="flex items-center gap-2">
       <div className="h-1 w-16 overflow-hidden rounded-full bg-surface-hover">
