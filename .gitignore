@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment and credentials — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Runtime data (persisted state, evidence, votes, SWITCH agent keys)
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Generated MVP workspaces produced by the Builder agent
+workspace/
+workspaces/
+
+# Local SWITCH configuration / registration keys
+.switch/
+switch-agents.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test and tooling caches
+coverage/
+.cache/
+.turbo/
+playwright-report/
+test-results/
