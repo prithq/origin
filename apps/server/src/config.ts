@@ -28,7 +28,7 @@ const envSchema = z.object({
   DEEPRELAY_BASE_URL: z.string().url().default("https://api.deeprelay.ai/v1"),
   DEEPRELAY_API_KEY: z.string().optional(),
   DEEPRELAY_MODEL: z.string().default("deepseek-v4.1-flash"),
-  LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(1200),
+  LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(12_000),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
 
   SWITCH_MODE: z.enum(["live", "offline"]).default("live"),
