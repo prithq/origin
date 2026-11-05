@@ -6,6 +6,9 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+# ...but not source directories that happen to be named build
+!apps/server/src/build/
+!apps/server/src/build/**
 
 # Environment and credentials — never commit
 .env
