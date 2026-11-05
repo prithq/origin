@@ -1,0 +1,28 @@
+{
+  "name": "origin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @origin/server --filter @origin/web dev",
+    "dev:server": "pnpm --filter @origin/server dev",
+    "dev:web": "pnpm --filter @origin/web dev",
+    "build": "pnpm --filter @origin/contracts build && pnpm --filter @origin/server build && pnpm --filter @origin/web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "switch:check": "pnpm --filter @origin/server switch:check",
+    "switch:rooms": "pnpm --filter @origin/server switch:rooms"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

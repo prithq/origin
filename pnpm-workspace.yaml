@@ -1,0 +1,8 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 11 blocks dependency lifecycle scripts by default.
+# esbuild needs its postinstall to place its platform binary; nothing else does.
+allowBuilds:
+  esbuild: true
